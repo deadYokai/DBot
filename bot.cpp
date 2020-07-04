@@ -4,8 +4,119 @@
 #include <sstream>
 #include <map>
 #include <curl/curl.h>
+#include <netinet/in.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
 
 using namespace std;
+
+static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+string getJoke(){
+	string readBuffer;
+	CURL *curl;
+        curl = curl_easy_init();
+        if(curl) {
+                curl_easy_setopt(curl, CURLOPT_URL, "https://vilafox.xyz/engine/ds/api?act=getJoke");
+    		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+                curl_easy_perform(curl);
+		curl_easy_cleanup(curl);
+	}
+	return readBuffer;
+}
+
+void netClient(string hostName, uint16_t port)
+{
+    bool connected = false;
+    int sock;
+
+    // create socket
+    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == -1)
+        printf("SOCKERR\n");
+
+    fcntl(sock, F_SETFL, O_NONBLOCK);
+
+
+    sockaddr_in addr;
+    // Memory::Clear(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    uint32_t ipAddr = 0;
+
+    ipAddr = inet_addr(hostName.c_str());
+
+    addr.sin_addr.s_addr = ipAddr;
+    cout << "Connecting to " << hostName.c_str() << " => " << ipAddr;
+    printf("Connecting to '%s' => '%d.%d.%d.%d', port %d\n",
+        hostName.c_str(),
+        ipAddr & 0xFF,
+        (ipAddr >> 8) & 0xFF,
+        (ipAddr >> 16) & 0xFF,
+        (ipAddr >> 24) & 0xFF,
+        port);
+
+    const int connectRes = connect(sock, (sockaddr*)&addr, sizeof(addr));
+    if (-1 == connectRes) {
+        if (((errno == EINPROGRESS) || (errno == EWOULDBLOCK) || (errno == EISCONN))) {
+            connected = true;
+        }
+    }
+    if (!connected)
+        printf("Failed to connect to '%s:%d'\n", hostName.c_str(), port);
+
+    fd_set fdr, fdw;
+    FD_ZERO(&fdr);
+    FD_ZERO(&fdw);
+    FD_SET(sock, &fdr);
+    FD_SET(sock, &fdw);
+
+    // for windows, it is necessary to provide an empty timeout
+    // structure, in order for select() to not block
+    struct timeval tv = { };
+    const int selectRes = select(int(sock+1), &fdr, &fdw, 0, &tv);
+    if (selectRes == -1) {
+        printf("select() failed.\n");
+    }
+    else if (selectRes > 0) {
+        printf("Try\n");
+        if (FD_ISSET(sock, &fdr)) {
+            printf("Should Recv OK!\n");
+        }
+        if (FD_ISSET(sock, &fdw)) {
+            printf("Should Send OK!\n");
+        }
+    }
+    printf("selectedRes: %d\n", selectRes);
+}
+
+void sendJoke(string token){
+        CURL *curl;
+        curl = curl_easy_init();
+        string post = "content=" + getJoke();
+        cout << "POST: " << post << endl;
+        struct curl_slist *headers = NULL;
+        if(curl) {
+                headers = curl_slist_append(headers, "User-Agent: Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)");
+                headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+                string a = "Authorization: Bot " + token;
+                headers = curl_slist_append(headers, a.c_str());
+                curl_easy_setopt(curl, CURLOPT_URL, "https://discordapp.com/api/gateway");
+                curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+                curl_easy_setopt(curl, CURLOPT_POST, 1);
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post.c_str());
+                curl_easy_perform(curl);
+               curl_easy_cleanup(curl);
+               cout << endl;
+        }
+	netClient("gateway.discord.gg", 80);
+}
+
 
 void launch(){
 	cout << "Bot token checking...\n";
@@ -29,23 +140,20 @@ void launch(){
 		cout << "New token:"<< token <<"\n\n";
     	}
 	CURL *curl;
-	CURLcode res;
 	curl = curl_easy_init();
+	string post = "content=" + getJoke();
+	cout << "POST: " << post << endl;
 	struct curl_slist *headers = NULL;
 	if(curl) {
 		headers = curl_slist_append(headers, "User-Agent: Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)");
 		headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
 		string a = "Authorization: Bot " + token;
 		headers = curl_slist_append(headers, a.c_str());
-		curl_easy_setopt(curl, CURLOPT_URL, "https://discordapp.com/api/channels/721018480761110618/messages");
+		curl_easy_setopt(curl, CURLOPT_URL, "https://discordapp.com/api/gateway/bot");
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-		curl_easy_setopt(curl, CURLOPT_POST, 1);
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "content=Если вы заблудились и очень устали - позовите кровососа\nУсталость как рукой снимет");
-		res = curl_easy_perform(curl);
+		curl_easy_perform(curl);
 		curl_easy_cleanup(curl);
-		cout << res << "\n";
-                cout << "Headers:" << headers << "\n";
-
+		cout << endl;
 	}
 
     // TODO
@@ -53,7 +161,7 @@ void launch(){
 
 int main(int argc, char **argv)
 {
-  cout << "Build 1804.14062020 \n\n";
+  cout << "Hello my friend! \n\n";
   cout << "DBot by VFox Team (http://vfoxteam.vilafox.xyz/) \n";
   cout << "Discord: https://discord.gg/sQxPPQD \n\n";
 
